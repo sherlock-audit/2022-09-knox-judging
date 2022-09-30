@@ -1,0 +1,46 @@
+8olidity
+# use safecast
+
+## Summary
+The unsafe casting of the recovered amount from int256 to uint256 means the users’ funds will be lost.
+https://github.com/None/blob/None/knox-contracts/contracts/vault/VaultInternal.sol#L682
+## Vulnerability Detail
+```
+   //knox-contracts/contracts/vault/VaultInternal.sol
+    function _formatTokenId(
+        TokenType tokenType,
+        uint64 maturity,
+        int128 strike64x64
+    ) internal pure returns (uint256 tokenId) {
+        tokenId =
+            (uint256(tokenType) << 248) +
+            (uint256(maturity) << 128) +
+            uint256(int256(strike64x64));
+    }
+```
+
+strike64x64 is int128
+tokenId  is uint256
+## Impact
+The unsafe casting of the recovered amount from int256 to uint256 means the users’ funds will be lost.
+
+## Code Snippet
+```
+   //knox-contracts/contracts/vault/VaultInternal.sol
+    function _formatTokenId(
+        TokenType tokenType,
+        uint64 maturity,
+        int128 strike64x64
+    ) internal pure returns (uint256 tokenId) {
+        tokenId =
+            (uint256(tokenType) << 248) +
+            (uint256(maturity) << 128) +
+            uint256(int256(strike64x64));
+    }
+```
+## Tool used
+vscode
+Manual Review
+
+## Recommendation
+[[https://docs.openzeppelin.com/contracts/3.x/api/utils#SafeCast-toUint256-int256](https://docs.openzeppelin.com/contracts/3.x/api/utils#SafeCast-toUint256-int256-)](https://docs.openzeppelin.com/contracts/3.x/api/utils#SafeCast-toUint256-int256-)
