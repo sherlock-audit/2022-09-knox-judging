@@ -13,7 +13,7 @@ Calls to external contracts inside a loop are dangerous (especially if the loop 
 ## Code Snippet
 https://github.com/None/blob/None/knox-contracts/contracts/queue/QueueInternal.sol#L140-L150
 
-```
+```solidity
     function _redeemMax(address receiver, address owner) internal {
         uint256[] memory tokenIds = _tokensByAccount(owner);
         uint256 currentTokenId = QueueStorage._getCurrentTokenId();

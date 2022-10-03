@@ -5,7 +5,7 @@
 The unsafe casting of the recovered amount from int256 to uint256 means the users’ funds will be lost.
 https://github.com/None/blob/None/knox-contracts/contracts/vault/VaultInternal.sol#L682
 ## Vulnerability Detail
-```
+```solidity
    //knox-contracts/contracts/vault/VaultInternal.sol
     function _formatTokenId(
         TokenType tokenType,
