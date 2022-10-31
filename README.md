@@ -1,9 +1,130 @@
-# Issue H-1: [NAZ-M6] Unbounded loop in `_previewWithdraw() && _redeemMax()` Can Lead To DoS 
+# Issue H-1: Underflow in ```_previewWithdraw``` could prevent withdrawals 
+
+Source: https://github.com/sherlock-audit/2022-09-knox-judging/issues/106 
+
+## Found by 
+dipp, \_\_141345\_\_, Trumpero, 0x52, hansfriese, yixxas
+
+## Summary
+
+An underflow in the ```_previewWithdraw``` function in ```AuctionInternal.sol``` due to totalContractsSold exceeding auction.totalContracts could prevent users from withdrawing options.
+
+## Vulnerability Detail
+
+The ```_previewWithdraw``` function returns the fill and refund amounts for a buyer by looping over all orders. A totalContractsSold variable is used to track the amount of contracts sold as the loop iterates over all orders. If the current order's size + totalContractsSold exceeds the auction's totalContracts then the order will only be filled partially. The calculation for the partial fill (remainder) is given on [line 318](https://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/auction/AuctionInternal.sol#L318). This will lead to an underflow if totalContractsSold > the auction's totalContracts which would happen if there are multiple orders that cause the totalContractsSold variable to exceed totalContracts.
+
+The totalContractsSold variable in ```_previewWithdraw``` could exceed the auction.totalContracts due to the contracts sold before the start of an auction through limit orders not being limited. When an order is added, _finalizeAuction is only called if the auction has started. The ```_finalizeAuction``` function will call the ```_processOrders``` function which will return true if the auction has reached 100% utilization. Since limit orders can be made before the start of an auction, _finalizeAuction is not called and any amount of new orders may be made.
+
+Example: The buyer makes a limit order with size > auction.totalContracts. They then make another order with size of anything. These orders are made before the start of the auction so ```_processOrders``` is not called for every new order and totalContractsSold can exceed totalContracts. When ```_previewWithdraw``` is called, after the buyer's first order is processed, totalContractsSold > auction.totalContracts so the condition on [line 313](https://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/auction/AuctionInternal.sol#L313) passes. Since totalContractsSold > auction.totalContracts the calculation on [line 318](https://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/auction/AuctionInternal.sol#L318) underflows and the transaction reverts. The ```_previewWithdraw``` function and thus the ```_withdraw``` function is uncallable.
+
+Test code added to ```Auction.behaviour.ts```, under the ```#addLimitOrder(uint64,int128,uint256)``` section:
+
+```typescript
+	it("previewWithdraw reverts if buyer has too many contracts", async () => {
+          assert.isEmpty(await auction.getEpochsByBuyer(addresses.buyer1));
+
+          await asset
+            .connect(signers.buyer1)
+            .approve(addresses.auction, ethers.constants.MaxUint256);
+
+          const totalContracts = await auction.getTotalContracts(epoch);
+          await auction.addLimitOrder(
+            epoch,
+            fixedFromFloat(params.price.max),
+            totalContracts.mul(2)
+          );
+
+          await auction.addLimitOrder(
+            epoch,
+            fixedFromFloat(params.price.max),
+            totalContracts.div(2)
+          );
+
+          const epochByBuyer = await auction.getEpochsByBuyer(addresses.buyer1);
+
+          assert.equal(epochByBuyer.length, 1);
+          assert.bnEqual(epochByBuyer[0], epoch);
+          
+          await expect(auction.callStatic[
+            "previewWithdraw(uint64)"
+          ](epoch)).to.be.reverted;
+        });
+```
+
+The test code above shows a buyer is able to add an order with size auction.totalContracts*2 and a subsequent order with size auction.totalContracts/2. The ```previewWithdraw``` function reverts when called. 
+
+## Impact
+
+Users would be unable to withdraw from the Auction contract.
+
+## Code Snippet
+
+[AuctionInternal.sol:_previewWithdraw#L312-L321](https://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/auction/AuctionInternal.sol#L312-L321)
+```solidity
+                    if (
+                        totalContractsSold + data.size >= auction.totalContracts
+                    ) {
+                        // if part of the current order exceeds the total contracts available, partially
+                        // fill the order, and refund the remainder
+                        uint256 remainder =
+                            auction.totalContracts - totalContractsSold;
+
+                        cost = lastPrice64x64.mulu(remainder);
+                        fill += remainder;
+```
+[AuctionInternal.sol:_validateLimitOrder#L479-L489](https://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/auction/AuctionInternal.sol#L479-L489)
+```solidity
+    function _validateLimitOrder(
+        AuctionStorage.Layout storage l,
+        int128 price64x64,
+        uint256 size
+    ) internal view returns (uint256) {
+        require(price64x64 > 0, "price <= 0");
+        require(size >= l.minSize, "size < minimum");
+
+        uint256 cost = price64x64.mulu(size);
+        return cost;
+    }
+```
+
+[AuctionInternal.sol:_addOrder#L545-L562](https://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/auction/AuctionInternal.sol#L545-L562)
+```solidity
+    function _addOrder(
+        AuctionStorage.Layout storage l,
+        AuctionStorage.Auction storage auction,
+        uint64 epoch,
+        int128 price64x64,
+        uint256 size,
+        bool isLimitOrder
+    ) internal {
+        l.epochsByBuyer[msg.sender].add(epoch);
+
+        uint256 id = l.orderbooks[epoch]._insert(price64x64, size, msg.sender);
+
+        if (block.timestamp >= auction.startTime) {
+            _finalizeAuction(l, auction, epoch);
+        }
+
+        emit OrderAdded(epoch, id, msg.sender, price64x64, size, isLimitOrder);
+    }
+```
+
+## Tool used
+
+Manual Review
+
+## Recommendation
+
+The loop in ```_previewWithdraw``` should check if the current totalContractsSold is >= totalContracts. If it is then the remainder should be set to 0 which would allow the current order to be fully refunded.
+
+Additionally, the orders for an auction should be checked before the auction starts. In ```_addOrder```, consider adding a condition that will call ```_processOrders``` if the auction has not started yet. If ```_processOrders``` returns true then do not allow the order to be added. Or just allow the auction to be finalized before it starts if the total contracts sold has reached the auction's totalContracts.
+
+# Issue H-2: [NAZ-M6] Unbounded loop in `_previewWithdraw() && _redeemMax()` Can Lead To DoS 
 
 Source: https://github.com/sherlock-audit/2022-09-knox-judging/issues/102 
 
 ## Found by 
-0xNazgul, \_\_141345\_\_, ctf\_sec
+\_\_141345\_\_, 0xNazgul, ctf\_sec
 
 ## Summary
 There are some unbounded loops that can lead to DoS.
@@ -52,12 +173,12 @@ Just for confirmation I kept #102 the main issue, although it's referencing two 
 
 
 
-# Issue H-2: Auction can potentially sell more contracts than it has collateral for. 
+# Issue H-3: Auction can potentially sell more contracts than it has collateral for. 
 
 Source: https://github.com/sherlock-audit/2022-09-knox-judging/issues/80 
 
 ## Found by 
-yixxas
+hansfriese, yixxas
 
 ## Summary
 `auction.totalContracts` is determined by the amount of collateral the protocol has received. After an auction has ended, users are allowed to withdraw and what they receive depends on whether their orders have filled, or they receive a refund, or a mixture of both. However, wrong accounting in `_previewWithdraw()` can lead to the `fill` and `refund` value to be calculated wrongly.
@@ -157,7 +278,7 @@ This problem arises due to how orders that have the same price as the clearing p
 I believe removing an order from the order book after withdrawal is done to prevent multiple withdrawals from the same user. If this is the case, we can use a mapping to check this instead, so that `totalContractsSold` remains accurate. We can then refund users once this exceeds `auction.totalContracts`.
 
 
-# Issue H-3: Wrong implementation of orderbook can make user can't get their fund back 
+# Issue H-4: Wrong implementation of orderbook can make user can't get their fund back 
 
 Source: https://github.com/sherlock-audit/2022-09-knox-judging/issues/66 
 
@@ -277,7 +398,7 @@ Use AuctionStorage.Status instead of sentinel values for determining whether the
 Source: https://github.com/sherlock-audit/2022-09-knox-judging/issues/137 
 
 ## Found by 
-Olivierdem, GalloDaSballo, csanuragjain, cccz, Trumpero, \_\_141345\_\_, ctf\_sec, ArbitraryExecution, ak1, Ruhum, jayphbee, minhquanym, ali\_shehab, Jeiwan, hansfriese, berndartmueller, 0xNazgul, joestakey
+Jeiwan, csanuragjain, berndartmueller, jayphbee, joestakey, Olivierdem, Ruhum, GalloDaSballo, \_\_141345\_\_, Trumpero, ArbitraryExecution, hansfriese, ali\_shehab, cccz, 0xNazgul, ak1, ctf\_sec, minhquanym
 
 ## Summary
 
@@ -331,7 +452,7 @@ require(block.timestamp - updatedAt < PRICE_ORACLE_STALE_THRESHOLD, "Price round
 Source: https://github.com/sherlock-audit/2022-09-knox-judging/issues/86 
 
 ## Found by 
-bin2chen, hansfriese, \_\_141345\_\_, rvierdiiev
+rvierdiiev, hansfriese, \_\_141345\_\_, bin2chen
 
 ## Summary
 
