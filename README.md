@@ -3,7 +3,7 @@
 Source: https://github.com/sherlock-audit/2022-09-knox-judging/issues/106 
 
 ## Found by 
-dipp, \_\_141345\_\_, Trumpero, 0x52, hansfriese, yixxas
+yixxas, \_\_141345\_\_, hansfriese, 0x52, dipp, Trumpero
 
 ## Summary
 
@@ -119,12 +119,28 @@ The loop in ```_previewWithdraw``` should check if the current totalContractsSol
 
 Additionally, the orders for an auction should be checked before the auction starts. In ```_addOrder```, consider adding a condition that will call ```_processOrders``` if the auction has not started yet. If ```_processOrders``` returns true then do not allow the order to be added. Or just allow the auction to be finalized before it starts if the total contracts sold has reached the auction's totalContracts.
 
+## Discussion
+
+**0xCourtney**
+
+https://github.com/KnoxFinance/knox-contracts/pull/80
+
+**rcstanciu**
+
+Reply from @arbitrary-CodeBeholder 
+
+---
+
+fixes look good
+
+
+
 # Issue H-2: [NAZ-M6] Unbounded loop in `_previewWithdraw() && _redeemMax()` Can Lead To DoS 
 
 Source: https://github.com/sherlock-audit/2022-09-knox-judging/issues/102 
 
 ## Found by 
-\_\_141345\_\_, 0xNazgul, ctf\_sec
+ctf\_sec, \_\_141345\_\_, 0xNazgul
 
 ## Summary
 There are some unbounded loops that can lead to DoS.
@@ -161,7 +177,7 @@ This applies specifically to issues #15, and #102.
 #25 is actually incorrect. We do check that size > minSize for the auction orders for [`_validateLimitOrder`](https://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/auction/AuctionInternal.sol#L485) and [`_validateMarketOrder`](https://github.com/sherlock-audit/2022-09-knox/blob/main/knox-contracts/contracts/auction/AuctionInternal.sol#L506)
 #102 should be two separate issues, one for `previewWithdraw` another for `redeemMax`. The issue mentioned about `redeemMax` should be low or informational for the reasons stated above.
 #15 likewise should be low or informational as its related to `redeemMax`
-#24, #82, and #85 are issues we plan to fix.
+#24, #82, and #85 are acknowledged.
 
 **Evert0x**
 
@@ -171,6 +187,12 @@ For #25 `minSize` is set in the `AuctionProxy` constructor but no `> 0` check is
 
 Just for confirmation I kept #102 the main issue, although it's referencing two separate issues. #24, #82 and #85 are duplicates of this. Rest of the issues are low/invalid
 
+**jacksanford1**
+
+Bringing in 0xCourtney comment from Discord:
+
+> All of the issues that are being reviewed have been linked in the judging repo issues. The only exception is issue#102. We acknowledged its a theoretical attack vector but will not fix it in this review. 
+
 
 
 # Issue H-3: Auction can potentially sell more contracts than it has collateral for. 
@@ -178,7 +200,7 @@ Just for confirmation I kept #102 the main issue, although it's referencing two 
 Source: https://github.com/sherlock-audit/2022-09-knox-judging/issues/80 
 
 ## Found by 
-hansfriese, yixxas
+yixxas, hansfriese
 
 ## Summary
 `auction.totalContracts` is determined by the amount of collateral the protocol has received. After an auction has ended, users are allowed to withdraw and what they receive depends on whether their orders have filled, or they receive a refund, or a mixture of both. However, wrong accounting in `_previewWithdraw()` can lead to the `fill` and `refund` value to be calculated wrongly.
@@ -276,6 +298,22 @@ Manual Review
 This problem arises due to how orders that have the same price as the clearing price, yet should not be filled due to exceeding the limit is not accounted for. A check in `_previewWithdraw()` needs to be done to prevent this edge case.
 
 I believe removing an order from the order book after withdrawal is done to prevent multiple withdrawals from the same user. If this is the case, we can use a mapping to check this instead, so that `totalContractsSold` remains accurate. We can then refund users once this exceeds `auction.totalContracts`.
+
+
+## Discussion
+
+**0xCourtney**
+
+https://github.com/KnoxFinance/knox-contracts/pull/80
+
+**rcstanciu**
+
+Reply from @arbitrary-CodeBeholder 
+
+---
+
+looks good
+
 
 
 # Issue H-4: Wrong implementation of orderbook can make user can't get their fund back 
@@ -378,6 +416,23 @@ Hardhat
 ## Recommendation
 Use an array to store unused (removed) id, then assign each id to the new limit order created instead of using `index.length`. 
 
+## Discussion
+
+**0xCourtney**
+
+https://github.com/KnoxFinance/knox-contracts/pull/78
+
+**rcstanciu**
+
+Reply from @arbitrary-CodeBeholder 
+
+---
+
+As mentioned above, by introducing this fix the existing method of looping based on length would have caus
+e an issue, but it appears to be correctly addressed in PR https://github.com/KnoxFinance/knox-contracts/pull/80.
+
+
+
 # Issue M-1: ## Auction can be ended with large limit order 
 
 Source: https://github.com/sherlock-audit/2022-09-knox-judging/issues/153 
@@ -393,12 +448,28 @@ If such an order is placed at the start of the auction, the auction can be final
 
 Use AuctionStorage.Status instead of sentinel values for determining whether the auction is in the canceled state.
 
+## Discussion
+
+**0xCourtney**
+
+https://github.com/KnoxFinance/knox-contracts/pull/79
+
+**rcstanciu**
+
+Reply from @arbitrary-CodeBeholder 
+
+---
+
+looks good
+
+
+
 # Issue M-2: Chainlink's `latestRoundData` might return stale or incorrect results 
 
 Source: https://github.com/sherlock-audit/2022-09-knox-judging/issues/137 
 
 ## Found by 
-Jeiwan, csanuragjain, berndartmueller, jayphbee, joestakey, Olivierdem, Ruhum, GalloDaSballo, \_\_141345\_\_, Trumpero, ArbitraryExecution, hansfriese, ali\_shehab, cccz, 0xNazgul, ak1, ctf\_sec, minhquanym
+jayphbee, hansfriese, 0xNazgul, GalloDaSballo, minhquanym, \_\_141345\_\_, csanuragjain, Olivierdem, joestakey, Ruhum, ctf\_sec, cccz, Jeiwan, Trumpero, ArbitraryExecution, ak1, ali\_shehab, berndartmueller
 
 ## Summary
 
@@ -447,12 +518,28 @@ require(answeredInRound >= roundId, "Price stale");
 require(block.timestamp - updatedAt < PRICE_ORACLE_STALE_THRESHOLD, "Price round incomplete");
 ```
 
+## Discussion
+
+**0xCourtney**
+
+https://github.com/KnoxFinance/knox-contracts/pull/85
+
+**rcstanciu**
+
+Reply from @arbitrary-CodeBeholder 
+
+---
+
+looks good to me
+
+
+
 # Issue M-3: `epochsByBuyer[]` can lose records 
 
 Source: https://github.com/sherlock-audit/2022-09-knox-judging/issues/86 
 
 ## Found by 
-rvierdiiev, hansfriese, \_\_141345\_\_, bin2chen
+\_\_141345\_\_, rvierdiiev, hansfriese, bin2chen
 
 ## Summary
 
@@ -487,6 +574,22 @@ Manual Review
 ## Recommendation
 
 Only remove the `epochsByBuyer` records when all the orders of the user is cancelled.
+
+## Discussion
+
+**0xCourtney**
+
+https://github.com/KnoxFinance/knox-contracts/pull/90
+
+**rcstanciu**
+
+Reply from @arbitrary-CodeBeholder 
+
+---
+
+looks good
+
+
 
 # Issue M-4: Users can avoid performance fees by withdrawing before the end of the epoch forcing other users to pay their fees 
 
@@ -528,6 +631,22 @@ Manual Review
 ## Recommendation
 
 Fees should be taken on withdrawals that occur before vault is settled
+
+## Discussion
+
+**0xCourtney**
+
+https://github.com/KnoxFinance/knox-contracts/pull/87
+
+**rcstanciu**
+
+Reply from @arbitrary-CodeBeholder
+
+---
+
+looks good
+
+
 
 # Issue M-5: _getNextFriday() returns wrong value when timestamp is between Monday 12am and 8am. 
 
@@ -592,6 +711,24 @@ Add 8 hours to the check when doing subtraction of `friday8am - timestamp`.
     }
 }
 ```
+
+## Discussion
+
+**0xCourtney**
+
+https://github.com/KnoxFinance/knox-contracts/pull/82
+
+**rcstanciu**
+
+Reply from @arbitrary-CodeBeholder 
+
+---
+
+I might consider changing the docstring of `_getNextFriday` to something like
+`     * @notice returns the next approaching Friday 8AM UTC timestamp + 7 days`
+I think it's somewhat clearer, but that is often subjective. Other than that it looks good
+
+
 
 # Issue M-6: Internal `OptionMath._getPositivePlaceValues()` function do not handle values below `185` 
 
@@ -665,6 +802,22 @@ index 746dd78..8ed2bbc 100644
          return (integer, values);
      }
 ```
+
+## Discussion
+
+**0xCourtney**
+
+https://github.com/KnoxFinance/knox-contracts/pull/81
+
+**rcstanciu**
+
+Reply from @arbitrary-CodeBeholder 
+
+---
+
+looks good
+
+
 
 # Issue M-7: processAuction() in VaultAdmin.sol can be called multiple times by keeper if the auction is canceled. 
 
@@ -750,6 +903,18 @@ The `Keeper` is an EOA owned/controlled by the protocol team and therefore consi
 **0xCourtney**
 
 No, this function should only be called once. We'll add a guard to prevent multiple calls.
+
+**0xCourtney**
+
+https://github.com/KnoxFinance/knox-contracts/pull/89
+
+**rcstanciu**
+
+Reply from @arbitrary-CodeBeholder
+
+---
+
+looks good
 
 
 
